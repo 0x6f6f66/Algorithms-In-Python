@@ -87,7 +87,7 @@ def solve_mine(graph, n):
         # If Tank didn't work
         if not did_tank_work:
             print(f'[DEBUG] Final Graph: | n: {n} | spaces opened: {spaces_opened}')
-            print(f'{assemble_result(graph)}')
+            rprint(f'{assemble_pretty_result(graph)}')
             return '?'
 
         result, n = basic_strategy(graph, n)
@@ -96,7 +96,8 @@ def solve_mine(graph, n):
             break
 
     final_uncover(graph)
-    return assemble_result(graph)
+    # return assemble_result(graph) # for normal result
+    return assemble_pretty_result(graph)
 
 
 # Returns boolean value, whether we should use tank or not
@@ -162,60 +163,21 @@ def tank_strategy(graph, n):
         # print('No possible solutions')
         return False
 
-    print(f'Possible solutions before rare: {possible_solutions}')
-    # print()
-
-    """
-    Here is behaviour we aren't checking.
-    
-    We have 1 island left, with 3 spaces. We have 2 bombs left.
-    An island has 2 possible solutions, one that uses 1 bomb, and one that uses 2 bombs.
-    
-    Safe spaces will calculate no possible safe space, as each space can have a bomb in there.
-    But, the correct answer will be the possible solution with 2 bombs.
-    
-    Where is the bug? In possible solutions?
-    
-    minimum amount of bombs? Maybe i need to code that into possible_solutions
-    
-    Solution minimum size depends on how many bombs and spaces are left.  
-    WE HAVE 2 BOMBS LEFT
-    WE HAVE 3 SPACES LEFT TOTAL
-    
-    BIGGEST POSSIBLE SOLUTION IS 2
-    SMALLEST POSSIBLE SOLUTION IS 1    
-    """
-    # Experimental code, could affect performance, but works for now. See note above.
-    # Basically, if rare condition is met, we're going to try and remove unnecessary and
-    # unfitting possible solutions.
-    if rare_condition(graph, island, possible_solutions, n):
-
-        global spaces_opened
-        total_spaces = len(graph) * len(graph[0])
-        spaces_left = total_spaces - spaces_opened
-
-        leave_solutions_with_most_bombs = False
-        for solution in possible_solutions:
-            solution_spaces = len(solution)
-            if (spaces_left - n) != (spaces_left - solution_spaces):
-                leave_solutions_with_most_bombs = True
-        if leave_solutions_with_most_bombs:
-            max_solution_length = len(max(possible_solutions))
-            for solution in possible_solutions:
-                if len(solution) == max_solution_length:
-                    continue
-                else:
-                    possible_solutions.remove(solution)
-
-    print(f'Possible solutions after rare: {possible_solutions}')
-    # print(f'[DEBUG] Possible solutions: {possible_solutions}')
-
     safe_spaces = get_safe_spaces(island, possible_solutions)
-    print(f'Safe_spaces outside rare condition: {safe_spaces}')
 
     # I suppose, if there are no safe spaces, program will not open anything.
     # I'll temporarily place a print statement to catch that behaviour when it happens.
     if not safe_spaces:
+        # This is not a for sure behaviour, we need to add another branch of logic here, as not having all safe
+        # spaces doens't necessarily mean this code has failed.
+        # TODO:
+        #  Write evaluation function to cover safe_spaces edge cases.
+        """
+        for solution in possible_solutions:
+            # Evaluate this solution
+            evaluate(graph, solution)
+        """
+
         print('No safe spaces')
         # We have no safe_spaces to open. Tank strategy failed. Result depends on probability.
         # Just return False in this case, which will then evaluate to '?'
@@ -255,9 +217,9 @@ def assemble_result(graph):
 # Could be temp, but also very inefficient function
 # Make pretty result from graph
 def assemble_pretty_result(graph):
-    bomb_color = '[red]'
-    default_color = '[cyan]'
-    qcolor = '[acid]'
+    bomb_color = '[bright_red]'
+    default_color = '[grey93]'
+    qcolor = '[green1]'
 
     final = f'{default_color}'
     for row in graph:
@@ -864,58 +826,6 @@ def check_tank_position(graph, row, col):
     return 1
 
 
-def rare_condition(graph, island, possible_solutions: List[Optional[Set[Tuple[int, int]]]], n: int) -> bool:
-    """
-    Not very descriptive, but this is a rare condition that happens on some boards.
-    We have one island left, but there are multiple solutions for that island.
-    We have to choose the solution that will use the most bombs, as if we choose the solution
-    that uses less bombs, we will have a bomb left with nowhere to put it.
-
-    However, before we even get to that, safe spaces will determine, that there is no place to open safely,
-    and tank algorithm will terminate as False, leaving us in an unresolvable state. (Even though it's very resolvable)
-    We just need to find out how to define this rare board condition.
-    """
-    # Is at least one element of different length?
-    different_length = False
-
-    prev_length = possible_solutions[0]
-    for i in range(1, len(possible_solutions)):
-        length = len(possible_solutions[i])
-        if prev_length != length:
-            print(f'[1] Different length | n: {n}')
-            different_length = True
-            break
-
-    if not different_length:
-        return False
-
-    same_as_bombs = False
-    biggest_elem = len(max(possible_solutions))
-    # Is the biggest element the same as number of bombs left?
-    # print(biggest_elem)
-    if biggest_elem == n:
-        print('[2] Biggest elem')
-        same_as_bombs = True
-
-    if not same_as_bombs:
-        return False
-
-
-
-    # Safe spaces logic
-    safe_spaces = get_safe_spaces(island, possible_solutions)
-    # If safe_spaces are available, means this isn't a rare condition, and we can still do something.
-    print(f'[3] Safe spaces inside rare conditions: {safe_spaces}')
-    if not safe_spaces:
-        return False
-
-    print(f'[ALERT] Rare condition happened!')
-    print(f'possible solutions inside rare: {possible_solutions}')
-    print(assemble_result(graph))
-
-    return True
-
-
 def get_safe_spaces(island: Set[Optional[Tuple[int, int]]],
                     possible_solutions: List[Optional[Set[Tuple[int, int]]]]) -> Set[Optional[Tuple[int, int]]]:
     # All spaces found in island, but not in possible solution (aka, safe spaces)
@@ -1099,7 +1009,6 @@ if __name__ == '__main__':
     1 x 1 0 0 0 0 0 0 0 1 2 2 1 0 0 1 1 1 0 0
     1 1 1 0 0 0 0 0 0 0 1 x x 1 0 0 1 x 1 0 0"""
 
-    # 23 Bombs
     graph5 = """0 0 0 0 0 0 0 0 ? ? ? ? ? 0 ? ? ? 0 ? ? ?
     0 0 0 0 0 0 0 0 ? ? ? ? ? 0 ? ? ? ? ? ? ?
     0 0 0 0 0 0 0 0 0 0 ? ? ? 0 ? ? ? ? ? ? ?
@@ -1110,6 +1019,7 @@ if __name__ == '__main__':
     ? ? ? 0 0 0 0 0 0 0 ? ? ? ? 0 0 ? ? ? 0 0
     ? ? ? 0 0 0 0 0 0 0 ? ? ? ? 0 0 ? ? ? 0 0"""
 
+    # 23 Bombs
     reference6 = """0 0 0 0 0 0 0 1 1 1
     1 1 1 1 1 1 0 2 x 2
     1 x 2 2 x 1 0 2 x 2
@@ -1164,13 +1074,11 @@ if __name__ == '__main__':
     tiny_graph2 = "0 ? ?"
     tiny_reference2 = "0 1 x"
 
-    reference = make_graph(reference6)
-    graph = make_graph(graph6)
+    reference = make_graph(reference5)
+    graph = make_graph(graph5)
 
-    #print('Result:')
-    #print(solve_mine(graph, 23))
-    #print()
-    #print('Expected:')
-    #print(assemble_result(reference))
-
-    rprint(assemble_pretty_result(graph))
+    print('Result:')
+    rprint(solve_mine(graph, 18))
+    print()
+    print('Expected:')
+    rprint(assemble_pretty_result(reference))
