@@ -115,7 +115,7 @@ def basic_strategy(graph, bombs_left: List[int], spaces_opened: List[int]) -> bo
 # Brute Force, multi-evalutaion strategy.
 # Very complex. Very fancy.
 def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recursive_call: bool, recursion_depth: int, memo=None) -> bool:
-    if recursion_depth > 1:
+    if recursion_depth > 10:
         return False
 
     print(f'Calling tank on graph:')
@@ -129,7 +129,8 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
         return True
 
     visited_borders: Set[Optional[Tuple[int, int]]] = set()
-
+    
+    # TODO: What if there are multiple islands?
     island = set()
     for i in range(len(graph)):
         for j in range(len(graph[0])):
@@ -1407,6 +1408,26 @@ if __name__ == '__main__':
     graph12 = '0 ? ?'
     expected12 = '0 1 x'
 
+    bombs13 = 6
+    reference13 = """0 0 0 0 1 1 1 1 1 1
+    0 0 0 1 2 x 2 2 x 1
+    0 1 1 2 x 2 2 x 2 1
+    1 2 x 2 1 1 1 1 1 0
+    1 x 2 1 0 0 0 0 0 0
+    1 1 1 0 0 0 0 0 0 0"""
+    graph13 = """0 0 0 0 ? ? ? ? ? ?
+    0 0 0 ? ? ? ? ? ? ?
+    0 ? ? ? ? ? ? ? ? ?
+    ? ? ? ? ? ? ? ? ? 0
+    ? ? ? ? 0 0 0 0 0 0
+    ? ? ? 0 0 0 0 0 0 0"""
+    expected13 = """0 0 0 0 1 1 1 1 1 1
+    0 0 0 1 2 x 2 2 x 1
+    0 1 1 2 x 2 2 x 2 1
+    1 2 x 2 1 1 1 1 1 0
+    1 x 2 1 0 0 0 0 0 0
+    1 1 1 0 0 0 0 0 0 0"""
+
     tests = {
         1: {
             'bombs': bombs1,
@@ -1482,18 +1503,28 @@ if __name__ == '__main__':
         }
     }
 
-    # for i in tests:
-        # print(f'Test{i}')
+    """
+    for i in tests:
+        ref = tests[i]['reference']
+        reference = make_graph(ref)
+        grph = tests[i]['graph']
+        gr = make_graph(grph)
+        bombs = tests[i]['bombs']
+        res = solve_mine(gr, bombs)
+        print(f'Result: {i}')
+        print()
+        print('Expected:')
+        rprint(assemble_pretty_result(reference))
+    """
 
-    reference = make_graph(reference12)
-    grph = make_graph(graph12)
-    res = solve_mine(grph, bombs12)
+    reference = make_graph(reference13)
+    grph = make_graph(graph13)
+    res = solve_mine(grph, bombs13)
     print('Result:')
     rprint(res)
     print()
     print('Expected:')
     rprint(assemble_pretty_result(reference))
-
 
     """
     # 41 bombs
