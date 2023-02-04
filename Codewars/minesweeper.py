@@ -2,7 +2,10 @@ from collections import deque
 from typing import Dict, List, Tuple, Set, Optional, Union
 from copy import deepcopy
 from rich import print as rprint
+import time
 
+class Global:
+    reference = None
 
 def increment(spaces_opened: List[int]) -> None:
     spaces_opened[0] += 1
@@ -17,7 +20,7 @@ def uncover(graph, row: int, col: int, spaces_opened: List[int]) -> int:
     increment(spaces_opened)
 
     # just need to replace reference[row][col] with str(open(row, col)) for codewars
-    val = reference[row][col]
+    val = Global.reference[row][col]
     if val == 'x':
         raise ValueError("You just opened a bomb")
     graph[row][col] = val
@@ -30,6 +33,18 @@ def uncover_bomb(graph, row: int, col: int, bombs_left: List[int], spaces_opened
     increment(spaces_opened)
     decrement(bombs_left)
     graph[row][col] = 'x'
+
+
+# Mark a potentially safe space, without opening it.
+def mark_safe_space(graph, row: int, col: int, spaces_opened: List[int]) -> None:
+    if graph[row][col] != '?':
+        print(f"[ALERT] We aren't supposed to be marking this space!")
+        print(f'row: {row} | col: {col}')
+        print(f'Graph: {graph}')
+        raise ValueError("You just marked an invalid space.")
+
+    graph[row][col] = 'S'
+    increment(spaces_opened)
 
 
 # Main solution method
@@ -66,8 +81,8 @@ def solve_mine(graph, n: int, spaces_opened: Optional[List[int]] = None):
 
         # If Tank didn't work
         if not did_tank_work:
-            print(f'[DEBUG] Final Graph: | bombs_left: {bombs_left} | spaces opened: {spaces_opened}')
-            rprint(f'{assemble_pretty_result(graph)}')
+            # print(f'[DEBUG] Final Graph: | bombs_left: {bombs_left} | spaces opened: {spaces_opened}')
+            # rprint(f'{assemble_pretty_result(graph)}')
             return '?'
 
         # TODO: Note that we're ignoring result of basic_strategy here
@@ -78,7 +93,7 @@ def solve_mine(graph, n: int, spaces_opened: Optional[List[int]] = None):
 
     final_uncover(graph, spaces_opened)
     # return assemble_result(graph) # for normal result
-    return assemble_pretty_result(graph)
+    return assemble_result(graph)
 
 
 # Returns boolean value, whether we should use tank or not
@@ -114,32 +129,49 @@ def basic_strategy(graph, bombs_left: List[int], spaces_opened: List[int]) -> bo
 
 # Brute Force, multi-evalutaion strategy.
 # Very complex. Very fancy.
-def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recursive_call: bool, recursion_depth: int, memo=None) -> bool:
-    if recursion_depth > 10:
+def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recursive_call: bool, recursion_depth: int,
+                  memo=None) -> bool:
+    if recursion_depth > 100:
         return False
 
-    print(f'Calling tank on graph:')
-    rprint(assemble_pretty_result(graph))
-    print(f'recur depth: {recursion_depth}')
+    # print(f'Calling tank on graph:')
+    # rprint(assemble_pretty_result(graph))
+    # print(f'recur depth: {recursion_depth}')
 
     if memo is None:
         memo = {}
 
-    if bombs_left[0] == 0:
-        return True
-
     visited_borders: Set[Optional[Tuple[int, int]]] = set()
-    
-    # TODO: What if there are multiple islands?
+
+    all_islands = []
     island = set()
     for i in range(len(graph)):
         for j in range(len(graph[0])):
             island = explore_island(graph, i, j, visited_borders)
             if island:
-                break
-        else:
-            continue
-        break
+                all_islands.append(island)
+
+    if all_islands:
+        # Investigate the smallest of all islands.
+        smallest = float('inf')
+        smallest_island = None
+        for islnd in all_islands:
+            if len(islnd) < smallest:
+                smallest_island = islnd
+
+        island = smallest_island
+
+    # TODO: Check that the extension is being calculated properly.
+    # Rare corner case for an island.
+    # extension = find_island_extension(graph, island)
+    # if extension:
+    #    print(f'extension: {extension}')
+    # island = island | extension  # Add the extension to the island.
+
+    # TODO: Are we able to return ealier? (No bombs left to uncover, but did we solve?)
+    # If we uncovered all bombs, and there are no remaining islands
+    if bombs_left[0] == 0 and not island:
+        return True
 
     # print(f'island: {island}')
     # print(f'all islands: {all_islands}')
@@ -151,7 +183,6 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
         for row, col in island:
             uncover_bomb(graph, row, col, bombs_left, spaces_opened)
         return True
-
 
     # Possible solution = Bomb locations for that island.
     # (There can be multiple, but most likely, there will also be spaces we can open safely
@@ -166,11 +197,11 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
     # Performance improver. We don't need to check every place in a graph to find out if it's valid
     # We can just iterate over the places relevant to that particular island, and check their validity.
     check_only = find_places_to_check(graph, island)
-    tank_solve_island(graph, island, bomb_limit, current_bombs, set(), check_only, possible_solutions)
+    tank_solve_island(graph, island, bomb_limit, current_bombs, set(), check_only, possible_solutions, recursive_call)
 
     # If no possible solutions exist for this island, we can't answer with certainty.
     if not possible_solutions:
-        print('No possible solutions')
+        # print('No possible solutions')
         return False
 
     safe_spaces: Set[Tuple[int, int]] = get_safe_spaces(island, possible_solutions)
@@ -180,9 +211,11 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
     if not safe_spaces:
         # print(f'{bombs_left} possible_solutions: {possible_solutions}')
         # print(f'{bombs_left} island: {island}')
+        evaluation_result = evaluate_all_solutions(graph, island, possible_solutions, bombs_left, spaces_opened,
+                                                   recursion_depth, memo)
 
-        return evaluate_all_solutions(graph, island, possible_solutions, bombs_left, spaces_opened, recursion_depth, memo)
         # return False
+        return evaluation_result
 
     # print(f'{bombs_left} safe_spaces: {safe_spaces}')
     # If this is a recursive call, opening "safe" spaces might open a bomb.
@@ -195,6 +228,11 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
     # It could be, that i will give us a valid solution with 1 bomb uncovered.
     # If it's a recursive call, we need to update the number of bombs we uncovered.
     if recursive_call:
+        # Mark safe spaces
+        for safe_space in safe_spaces:
+            row, col = safe_space
+            mark_safe_space(graph, row, col, spaces_opened)
+
         for solution in possible_solutions:
             # Careful, this might contain an empty set as a solution.
             # When an empty set is contained, for pos in solution will not iterate over anything.
@@ -202,10 +240,11 @@ def tank_strategy(graph, bombs_left: List[int], spaces_opened: List[int], recurs
             for pos in solution:
                 row, col = pos
                 uncover_bomb(graph, row, col, bombs_left, spaces_opened)
-
-        # If we haven't uncovered all bombs, that means, we can run tank strategy recursively again.
-        if bombs_left != 0:
-            return tank_strategy(graph, bombs_left, spaces_opened, True, recursion_depth + 1, memo)
+                # If we haven't uncovered all bombs, that means, we can run tank strategy recursively again.
+            if bombs_left != 0:
+                if tank_strategy(graph, bombs_left, spaces_opened, True, recursion_depth + 1, memo):
+                    return True
+        return False
 
     return True
 
@@ -476,7 +515,6 @@ def explore_island(graph, r: int, c: int, visited: Set[Optional[Tuple[int, int]]
         (1, -2), (1, -1), (1, 0), (1, 1), (1, 2),
         (2, -2), (2, -1), (2, 0), (2, 1), (2, 2)
     ]
-
     """
     deltas = [
         (-1, -1), (-1, 0), (-1, 1),
@@ -530,7 +568,7 @@ def is_valid_for_explore(graph, r: int, c: int) -> bool:
 
     # Return True if there is at least one alphanumeric character around the '?'
     # OR If the question mark is on the border.
-    return (alnum_chars_count != 0) or (border_question_mark(graph, r, c))
+    return (alnum_chars_count != 0) or border_question_mark(graph, r, c)
 
 
 # Is this question mark on a border of the graph?
@@ -540,7 +578,7 @@ def border_question_mark(graph, row: int, col: int) -> bool:
         return False
 
     if ((row == 0) or (row == len(graph) - 1)) and ((col == 0) or (col == len(graph[0]) - 1)):
-        print(f'[ATTENTION] Border question mark! {row} {col}')
+        # print(f'[ATTENTION] Border question mark! {row} {col}')
         return True
 
     return False
@@ -605,7 +643,7 @@ def find_all_alphanum(graph, row: int, col: int) -> Set[Optional[Tuple[int, int]
 def tank_solve_island(graph, island: Set[Optional[Tuple[int, int]]],
                       bomb_limit: int, current_bombs: List[Tuple[int, int]],
                       visited: Set[Optional[str]], check_only: Set[Tuple[int, int]],
-                      output: List[Optional[Set[Tuple[int, int]]]]):
+                      output: List[Optional[Set[Tuple[int, int]]]], recursive_call: bool):
     """
     ['?', '?', '?', '?', '?', '?']
     ['2', '2', '2', '1', '2', '2']
@@ -693,7 +731,8 @@ def tank_solve_island(graph, island: Set[Optional[Tuple[int, int]]],
     if not island:
         return
 
-    key = make_key(bomb_limit, current_bombs)
+    # Make key requires two arguments, so I'm placing 111111 as a nice placeholder.
+    key = make_key(bomb_limit, 111111, current_bombs)
     if key in visited:
         return
 
@@ -733,6 +772,12 @@ def tank_solve_island(graph, island: Set[Optional[Tuple[int, int]]],
         if current_bombs:
             output.append(set(current_bombs))
 
+        # TODO:
+        #  Alright. A conflict. During recursion, we ARE allowed to output an empty set of bombs, sigifying that we're
+        #  accepting the currect configuration of the board.
+        if recursive_call and not current_bombs:
+            output.append(set())
+
     visited.add(key)
 
     if bomb_limit == 0:
@@ -746,7 +791,7 @@ def tank_solve_island(graph, island: Set[Optional[Tuple[int, int]]],
             current_bombs.append(pos)
             current_bombs.sort()
             # This was hard as ?&^% to write.
-            tank_solve_island(graph, island, bomb_limit - 1, current_bombs, visited, check_only, output)
+            tank_solve_island(graph, island, bomb_limit - 1, current_bombs, visited, check_only, output, recursive_call)
             current_bombs.remove(pos)
             graph[row][col] = '?'
 
@@ -767,11 +812,12 @@ def make_modified_graph(graph, current_bombs: List[Tuple[int, int]], island: Set
 
 
 # Make a custom string key to use in visited set
-def make_key(number: int, arr: Union[List[Tuple[int, int]], Set[Tuple[int, int]]]) -> str:
-    if not arr:
-        return 'NONE'
+def make_key(first_number: int, second_number: int, arr: Union[List[Tuple[int, int]], Set[Tuple[int, int]]]) -> str:
+    key = [f'{first_number}-{second_number}']
 
-    key = [f'{number}']
+    if not arr:
+        suffix = '[EMPTY]'
+        key.append(suffix)
 
     for elem in arr:
         suffix = str(elem)
@@ -877,7 +923,8 @@ def get_safe_spaces(island: Set[Tuple[int, int]],
 
 def evaluate_all_solutions(graph, island: Set[Optional[Tuple[int, int]]],
                            possible_solutions: List[Optional[Set[Tuple[int, int]]]], bombs_left: List[int],
-                           spaces_opened: List[int], recursion_depth: int, memo: Dict[str, Tuple[bool, List[int]]]) -> bool:
+                           spaces_opened: List[int], recursion_depth: int,
+                           memo: Dict[str, Tuple[bool, List[int]]]) -> bool:
     all_results = {}
     for index in range(len(possible_solutions)):
         # Keys of all_results relate to indecies of solutions in possible solutions
@@ -890,7 +937,8 @@ def evaluate_all_solutions(graph, island: Set[Optional[Tuple[int, int]]],
         Luckily, i already have a function to assemble memo key.
         """
 
-        solution_result, solution_bombs_left = evaluate(graph, solution, bombs_left, spaces_opened, recursion_depth, memo)
+        solution_result, solution_bombs_left = evaluate(graph, island, solution, bombs_left, spaces_opened,
+                                                        recursion_depth, memo)
 
         all_results[index] = {}
         all_results[index]['result'] = solution_result
@@ -898,7 +946,6 @@ def evaluate_all_solutions(graph, island: Set[Optional[Tuple[int, int]]],
         all_results[index]['bombs_left'] = solution_bombs_left
         # We save solution for debugging and convenience purposes. We can probably drop it from this dictionary
         all_results[index]['solution'] = solution
-
 
     # Now we need to only analyze valid results.
     new_possible_solutions: List[Optional[Set[Tuple[int, int]]]] = []
@@ -919,9 +966,9 @@ def evaluate_all_solutions(graph, island: Set[Optional[Tuple[int, int]]],
 
     # [DEBUG]
     # if new_possible_solutions:
-        # print(f'   possible solutions:')
+    # print(f'   possible solutions:')
     #    for sol in new_possible_solutions:
-            # print(f'    sol: {sol}')
+    # print(f'    sol: {sol}')
 
     # Get revised safe spaces from new possible solutions.
     safe_spaces: Set[Tuple[int, int]] = get_safe_spaces(island, new_possible_solutions)
@@ -959,7 +1006,7 @@ def evaluate_all_solutions(graph, island: Set[Optional[Tuple[int, int]]],
 
 
 # Evaluate validity of individual solution.
-def evaluate(graph, solution: Set[Tuple[int, int]],
+def evaluate(graph, island: Set[Optional[Tuple[int, int]]], solution: Set[Tuple[int, int]],
              bombs_left: List[int], spaces_opened: List[int], recursion_depth: int,
              memo: Dict[str, Tuple[bool, List[int]]]) -> Tuple[bool, List[int]]:
     # print(f'[==============]')
@@ -970,7 +1017,7 @@ def evaluate(graph, solution: Set[Tuple[int, int]],
     # We could need to decrement the amount of bombs we use for our key,
     # As the return value will relate to the decremented amount of bombs.
     # TODO: Check what is the value of this key supposed to be.
-    key = make_key( (bombs_left[0] - len(solution) ) , solution)
+    key = make_key((bombs_left[0] - len(solution)), (spaces_opened[0] + len(solution)), solution)
 
     if key in memo:
         # print(f'[ALERT] MEMO USED!!! YAY: {key}')
@@ -985,11 +1032,16 @@ def evaluate(graph, solution: Set[Tuple[int, int]],
         row, col = pos
         uncover_bomb(temp_graph, row, col, temp_bombs_left, temp_spaces_opened)
 
+    # If this is an "empty" solution. (Aka, solution which accepts the island as it is)
+    # It assumes that the rest of the fields in the island are safe. Therefore, mark them as safe.
+    if not solution:
+        for row, col in island:
+            mark_safe_space(temp_graph, row, col, temp_spaces_opened)
+
     # print(f'    starting recursive tank strategy with arg: {temp_bombs_left[0]}')
     # if temp_bombs_left[0] == 0:
-        # print(f'    SOLUTION WITH 0 BOMBS LEFT!!!!')
+    # print(f'    SOLUTION WITH 0 BOMBS LEFT!!!!')
     # rprint(f'{assemble_pretty_result(temp_graph)}')
-
     recursive_call = True
     result = tank_strategy(temp_graph, temp_bombs_left, temp_spaces_opened, recursive_call, recursion_depth + 1, memo)
 
@@ -1001,7 +1053,6 @@ def evaluate(graph, solution: Set[Tuple[int, int]],
 def island_of_bombs(island: Set[Optional[Tuple[int, int]]],
                     solution: [Set[Tuple[int, int]]],
                     bombs_left: List[int]) -> bool:
-
     if len(solution) != len(island):
         return False
 
@@ -1015,7 +1066,7 @@ def island_of_bombs(island: Set[Optional[Tuple[int, int]]],
     return True
 
 
-if __name__ == '__main__':
+def test_solutions(debug=False):
     bombs1 = 43
     reference1 = """1 1 0 1 1 1 0 0 1 1 1 0 0 0 0 1 1 1 0
     x 1 0 1 x 1 0 0 2 x 2 0 0 0 0 1 x 2 1
@@ -1428,6 +1479,32 @@ if __name__ == '__main__':
     1 x 2 1 0 0 0 0 0 0
     1 1 1 0 0 0 0 0 0 0"""
 
+    bombs14 = 1
+    reference14 = """x x x
+    x 8 x
+    x x x"""
+    graph14 = """? ? ?
+    ? ? ?
+    ? ? ?"""
+    expected14 = '?'
+
+    bombs15 = 5
+    reference15 = """0 1 1 1 1 x 1
+    0 2 x 2 1 1 1
+    0 2 x 2 1 1 1
+    0 2 2 2 1 x 1
+    0 1 x 1 1 1 1"""
+    graph15 = """0 1 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 1 ? ? ? ? ?"""
+    expected15 = """0 1 1 1 1 x 1
+    0 2 x 2 1 1 1
+    0 2 x 2 1 1 1
+    0 2 2 2 1 x 1
+    0 1 x 1 1 1 1"""
+
     tests = {
         1: {
             'bombs': bombs1,
@@ -1448,10 +1525,10 @@ if __name__ == '__main__':
             'expected': expected3
         },
         4: {
-            'bombs': bombs3,
-            'reference': reference3,
-            'graph': graph3,
-            'expected': expected3
+            'bombs': bombs4,
+            'reference': reference4,
+            'graph': graph4,
+            'expected': expected4
         },
         5: {
             'bombs': bombs5,
@@ -1500,41 +1577,440 @@ if __name__ == '__main__':
             'reference': reference12,
             'graph': graph12,
             'expected': expected12
+        },
+        13: {
+            'bombs': bombs13,
+            'reference': reference13,
+            'graph': graph13,
+            'expected': expected13
+        },
+        14: {
+            'bombs': bombs14,
+            'reference': reference14,
+            'graph': graph14,
+            'expected': expected14
+        },
+        15: {
+            'bombs': bombs15,
+            'reference': reference15,
+            'graph': graph15,
+            'expected': expected15
         }
     }
 
-    """
     for i in tests:
         ref = tests[i]['reference']
         reference = make_graph(ref)
+        Global.reference = reference
+
         grph = tests[i]['graph']
         gr = make_graph(grph)
+
+        exp = tests[i]['expected']
+        expectation = make_graph(exp)
+
         bombs = tests[i]['bombs']
-        res = solve_mine(gr, bombs)
-        print(f'Result: {i}')
-        print()
-        print('Expected:')
-        rprint(assemble_pretty_result(reference))
+        res = None
+        try:
+            res = solve_mine(gr, bombs)
+        except:
+            pass
+
+        print(f'Test [{i}]: ', end='')
+
+        if res == assemble_result(expectation):
+            rprint('[green1]SUCCESS')
+        else:
+            rprint('[red]FAIL', end='')
+            if res is None:
+                rprint('[red]: Bomb exploded', end='')
+            print()
+
+        if debug:
+            print('Result:')
+            if res is not None:
+                rprint(assemble_pretty_result(make_graph(res)))
+            else:
+                rprint('[red]Bomb')
+            print('Expected:')
+            rprint(assemble_pretty_result(expectation))
+
+"""
+* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+"""
+
+
+# Explore all question marks, and assemble them into an island
+def explore_island_temp(graph, row: int, col: int, visited: Set[Optional[Tuple[int, int]]]) -> Set[Optional[Tuple[int, int]]]:
+    island = set()
+
+    pos = (row, col)
+
+    if pos in visited:
+        return island
+
+    if graph[row][col] != '?':
+        return island
+
+    """
+    Check if the current question mark is valid to be explored.
+    Question mark is valid, when it is not surrounded by only question marks, but also by numbers.
+        0 1 2
+    0   ? ? ?
+    1   ? ? ?
+    2   ? ? 1
+
+    (0, 0), (0, 1), (0, 2)
+    (1, 0)
+    (2, 0)
+    Are all invalid.
+
+    (2, 1), (1, 1), (1, 2)
+    Are all valid. 
+
+    (essentially, we're looking for question marks on the border of numbers, or bombs.)
     """
 
-    reference = make_graph(reference13)
-    grph = make_graph(graph13)
-    res = solve_mine(grph, bombs13)
+    visited.add(pos)
+
+    if not is_valid_for_explore_temp(graph, row, col):
+        return island
+
+    # print(f'[EXPLORING] {pos}')
+
+    island.add(pos)
+
+    """
+    deltas = [
+        (-2, -2), (-2, -1), (-2, 0), (-2, 1), (-2, 2),
+        (-1, -2), (-1, -1), (-1, 0), (-1, 1), (-1, 2),
+        (0, -2), (0, -1), (0, 1), (0, 2),
+        (1, -2), (1, -1), (1, 0), (1, 1), (1, 2),
+        (2, -2), (2, -1), (2, 0), (2, 1), (2, 2)
+    ]
+    """
+
+    deltas = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1), (0, 1),
+        (1, -1), (1, 0), (1, 1)
+    ]
+
+    for delta in deltas:
+        delta_row, delta_col = delta
+        neighbour_row = row + delta_row
+        neighbour_col = col + delta_col
+
+        row_inbounds = 0 <= neighbour_row < len(graph)
+        col_inbounds = 0 <= neighbour_col < len(graph[0])
+
+        if not row_inbounds or not col_inbounds:
+            continue
+
+        result: Set[Optional[Tuple[int, int]]] = explore_island(graph, neighbour_row, neighbour_col, visited)
+        if result:
+            island = island | result
+
+    return island
+
+
+# If there are no alphanumeric characters around a question mark, it should become part of an island (border)
+def is_valid_for_explore_temp(graph, row: int, col: int) -> bool:
+    deltas = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1), (0, 1),
+        (1, -1), (1, 0), (1, 1)
+    ]
+
+    alnum_chars_count = 0
+
+    for delta in deltas:
+        delta_row, delta_col = delta
+        neighbour_row = row + delta_row
+        neighbour_col = col + delta_col
+
+        row_inbounds = 0 <= neighbour_row < len(graph)
+        col_inbounds = 0 <= neighbour_col < len(graph[0])
+
+        if not row_inbounds or not col_inbounds:
+            continue
+
+        neighbour: str = graph[neighbour_row][neighbour_col]
+
+        if neighbour.isalnum():
+            alnum_chars_count += 1
+
+    # Return True if there is at least one alphanumeric character around the '?'
+    # OR If the question mark is on the border.
+    return alnum_chars_count != 0
+
+
+def find_island_extension(graph, island) -> Set[Optional[Tuple[int, int]]]:
+    """
+    1 1 1     1 1 1 1 1     ! ! * 1     ! * 1
+    * * *     1 * 1 * 1     * * * 1     * * 1
+    ? ? ?     * * * * *     1 1 1 1     1 1 1
+              ? ? ? ? ?
+
+    ? ? ? * 1
+    ? ? * * 1
+    * * * 2 1
+    1 1 1 1 1
+    """
+    # All question marks around island.
+    visited = set(island)
+    extension = set()
+
+    for row, col in island:
+        # This is going to be a dirty algorithm, as i don't know yet how to properly find an island extension,
+        # and what even counts as an island extension. For now, i am going to count any border question mark
+        # next to the island as an extension
+        adjacent = find_adjacent_questionmark(graph, row, col, visited)
+
+        if len(adjacent) > 1:
+            print('[ALERT] Interesting edge case, more than 1 adjacent question mark.')
+            print(f'pos: {row} {col}')
+            print(f'island: {island}')
+            print(f'graph: {graph}')
+
+        # Add any adjacent question marks to the extension (Though, there really is going to be just one (most likely))
+        # I'm not going to gamble, and will pretend there will be multiple.
+        extension = extension | adjacent
+
+    return extension
+
+
+def find_adjacent_questionmark(graph, row: int, col: int, visited: Set[Optional[Tuple[int, int]]]) -> Set[Optional[Tuple[int, int]]]:
+    adjacent = set()
+
+    deltas = [
+        (-1, -1), (-1, 0), (-1, 1),
+        (0, -1), (0, 1),
+        (1, -1), (1, 0), (1, 1)
+    ]
+
+    for delta in deltas:
+        delta_row, delta_col = delta
+        neighbour_row = row + delta_row
+        neighbour_col = col + delta_col
+
+        row_inbounds = 0 <= neighbour_row < len(graph)
+        col_inbounds = 0 <= neighbour_col < len(graph[0])
+
+        if not row_inbounds or not col_inbounds:
+            continue
+
+        neighbour: str = graph[neighbour_row][neighbour_col]
+        if neighbour != '?':
+            continue
+
+        pos = (neighbour_row, neighbour_col)
+
+        if pos in visited:
+            continue
+
+        if not border_question_mark_temp(graph, neighbour_row, neighbour_col):
+            continue
+
+        adjacent.add(pos)
+        visited.add(pos)
+
+    return adjacent
+
+
+# Is this question mark on a border of the graph?
+def border_question_mark_temp(graph, row: int, col: int) -> bool:
+    # We need to only check question marks
+    if graph[row][col] != '?':
+        return False
+
+    if ((row == 0) or (row == len(graph) - 1)) and ((col == 0) or (col == len(graph[0]) - 1)):
+        # print(f'[ATTENTION] Border question mark! {row} {col}')
+        return True
+
+    return False
+
+
+def explore_tests():
+    """
+        0 1 2 3 4
+    0   0 0 0 0 0
+    1   1 1 1 1 1
+    2   * * * * *
+    3   ? ? ? ? ?
+    4   ? ? ? ? ?
+    """
+
+    """
+    1 1 1
+    1 * *
+    1 * *
+    """
+
+    """
+    1 1 1 1 1
+    1 * * * * 
+    1 * ? ? ?
+    1 * ? ? ?
+    1 * ? ? ?
+    """
+
+    explore_test1 = """0 0 0 0 0
+    1 1 1 1 1
+    ? ? ? ? ?
+    ? ? ? ? ?
+    ? ? ? ? ?"""
+    explore_expected1 = {(2, 0), (2, 1), (2, 2), (2, 3), (2, 4)}
+
+    explore_test2 = """1 1 1
+    1 ? ?
+    1 ? ?"""
+    explore_expected2 = {(1, 1), (1, 2), (2, 1), (2, 2)}
+
+    explore_test3 = """1 1 1 1 1
+    1 ? ? ? ?
+    1 ? ? ? ?
+    1 ? ? ? ?
+    1 ? ? ? ?"""
+    explore_expected3 = {(1, 1), (1, 2), (1, 3), (1, 4), (2, 1), (3, 1), (4, 1)}
+
+    explore_test4 = """0 1 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 2 ? ? ? ? ?
+    0 1 ? ? ? ? ?"""
+    explore_expected4 = {(0, 2), (1, 2), (2, 2), (3, 2), (4, 2)}
+
+    tests = {
+        1: {
+            'graph': explore_test1,
+            'expected': explore_expected1
+        },
+        2: {
+            'graph': explore_test2,
+            'expected': explore_expected2
+        },
+        3: {
+            'graph': explore_test3,
+            'expected': explore_expected3
+        },
+        4: {
+            'graph': explore_test4,
+            'expected': explore_expected4
+        }
+    }
+
+    for index in range(1, len(tests) + 1):
+        graph = tests[index]['graph']
+        explore_graph = make_graph(graph)
+        explore_expected = tests[index]['expected']
+
+        visited = set()
+        all_islands = []
+        island = set()
+        for i in range(len(explore_graph)):
+            for j in range(len(explore_graph[0])):
+
+                island = explore_island_temp(explore_graph, i, j, visited)
+                if island:
+                    all_islands.append(island)
+
+        if all_islands:
+            # Investigate the smallest of all islands.
+            smallest = float('inf')
+            smallest_island = None
+            for islnd in all_islands:
+                if len(islnd) < smallest:
+                    smallest = len(islnd)
+                    smallest_island = islnd
+
+            island = smallest_island
+
+        # Rare corner case for an island.
+        extension = find_island_extension(explore_graph, island)
+        print(f'extension: {extension}')
+        island = island | extension  # Add the extension to the island.
+
+        print(f'Test [{index}]: ', end='')
+        if island != explore_expected:
+            rprint(f'[red]FAIL')
+            print(f'Smallest island: {island}')
+            print(f'Expected: {explore_expected}')
+        else:
+            rprint(f'[green1]SUCCESS')
+
+
+if __name__ == '__main__':
+    test_solutions(True)
+
+    '''
+    reference = make_graph(reference15)
+    grph = make_graph(graph15)
+    res = solve_mine(grph, bombs15)
     print('Result:')
     rprint(res)
-    print()
     print('Expected:')
-    rprint(assemble_pretty_result(reference))
+    rprint(assemble_pretty_result(make_graph(expected15)))
+    '''
 
     """
     # 41 bombs
-    efficiency = 0 1 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
+    efficiency = '''0 1 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
     0 2 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
     0 2 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
     0 2 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
-    0 1 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?
+    0 1 ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ? ?'''
 
     eff_graph = make_graph(efficiency)
     eff_island = explore_island(eff_graph, 0, 2, set())
     rprint(assemble_pretty_result(make_modified_graph(eff_graph, eff_island, eff_island)))
     """
+
+    # TODO: Explore graph not working as expected.
+    # explore_tests()
+
+    '''
+    explore_test2 = """1 1 1
+    1 ? ?
+    1 ? ?"""
+    explore_expected2 = {(1, 1), (1, 2), (2, 1), (2, 2)}
+
+    graph = explore_test2
+    explore_graph = make_graph(graph)
+    explore_expected = explore_expected2
+
+    visited = set()
+    all_islands = []
+    island = set()
+    for i in range(len(explore_graph)):
+        for j in range(len(explore_graph[0])):
+            island = explore_island_temp(explore_graph, i, j, visited)
+            if island:
+                all_islands.append(island)
+
+    print(all_islands)
+
+    if all_islands:
+        # Investigate the smallest of all islands.
+        smallest = float('inf')
+        smallest_island = None
+        for islnd in all_islands:
+            if len(islnd) < smallest:
+                smallest = len(islnd)
+                smallest_island = islnd
+
+        island = smallest_island
+
+    # Rare corner case for an island.
+    extension = find_island_extension(explore_graph, island)
+    print(f'extension: {extension}')
+    island = island | extension  # Add the extension to the island.
+
+    print(island)
+    rprint(assemble_pretty_result(make_graph(explore_test2)))
+    '''
+
+
+
+
+
